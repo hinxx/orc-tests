@@ -90,7 +90,7 @@ void test_one_stripe() {
 
 }
 
-void test_multi_stripe() {
+void test_multi_stripe(unsigned rowBatchSize) {
     std::unique_ptr<orc::OutputStream> outFile = orc::writeLocalFile("file-multi-stripe.orc");
     orc::MemoryPool *pool = orc::getDefaultPool();
     ORC_UNIQUE_PTR<orc::Type> type(orc::Type::buildTypeFromString("struct<col1:int>"));
@@ -108,17 +108,18 @@ void test_multi_stripe() {
                                       orc::FileVersion::v_0_11());
 
     // multiple stripes
-    std::unique_ptr<orc::ColumnVectorBatch> batch = writer->createRowBatch(65535);
+    std::unique_ptr<orc::ColumnVectorBatch> batch = writer->createRowBatch(rowBatchSize);
     orc::StructVectorBatch* structBatch = dynamic_cast<orc::StructVectorBatch*>(batch.get());
     orc::LongVectorBatch* longBatch = dynamic_cast<orc::LongVectorBatch*>(structBatch->fields[0]);
 
-    // generate 10 stripes
+    // generate >1 stripes since the batch size is larger than stripe size
+    // we set the minimum strip size and not the exact stripe size
     for (uint64_t j = 0; j < 10; ++j) {
-        for (uint64_t i = 0; i < 65535; ++i) {
+        for (uint64_t i = 0; i < rowBatchSize; ++i) {
             longBatch->data[i] = static_cast<int64_t>(i);
         }
-        structBatch->numElements = 65535;
-        longBatch->numElements = 65535;
+        structBatch->numElements = rowBatchSize;
+        longBatch->numElements = rowBatchSize;
 
         writer->add(*batch);
     }
@@ -129,7 +130,14 @@ void test_multi_stripe() {
 int main(int argc, char const *argv[]) {
     test_empty();
     test_one_stripe();
-    test_multi_stripe();
+    
+    // 10 stripes
+    // test_multi_stripe(65*1024);
+    // test_multi_stripe(1024);
+    // test_multi_stripe(512);
+    
+    // only 5 stripes
+    test_multi_stripe(10);
     return 0;
 }
 
