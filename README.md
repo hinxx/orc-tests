@@ -1,6 +1,6 @@
 # orc tests
 
-wget https://www.apache.org/dyn/closer.cgi/orc/orc-1.8.2/orc-1.8.2.tar.gz
+wget https://dlcdn.apache.org/orc/orc-1.8.2/orc-1.8.2.tar.gz
 tar xf orc-1.8.2.tar.gz
 
 mkdir build-1.8.2
