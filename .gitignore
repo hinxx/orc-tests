@@ -4,3 +4,4 @@ orc-1.8.2
 orc-1.8.2.tar.gz
 tests/test1
 tests/*.orc
+tests/test1
