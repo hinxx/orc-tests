@@ -336,8 +336,10 @@ void test_timestamp() {
 void test_string() {
     std::unique_ptr<orc::OutputStream> outFile = orc::writeLocalFile("file-string.orc");
     orc::MemoryPool *pool = orc::getDefaultPool();
-    // varchar and char types seem to be handled the same way as string type?!
-    // see writeCharAndVarcharColumn() in TestWriter.cc
+
+    // length of strings can vary
+    // there is no padding
+    // there is no maximum length
     ORC_UNIQUE_PTR<orc::Type> type(orc::Type::buildTypeFromString("struct<col1:string>"));
 
     uint64_t stripeSize = 16 * 1024; // 16K
@@ -378,6 +380,99 @@ void test_string() {
     writer->close();
 }
 
+void test_char() {
+    std::unique_ptr<orc::OutputStream> outFile = orc::writeLocalFile("file-char.orc");
+    orc::MemoryPool *pool = orc::getDefaultPool();
+
+    // length of strings is fixed
+    // if length is < 4 will pad with ' ' (appended)
+    // will clip the length of the string to maximum 4 bytes
+    ORC_UNIQUE_PTR<orc::Type> type(orc::Type::buildTypeFromString("struct<col1:char(4)>"));
+
+    uint64_t stripeSize = 1024;
+    uint64_t compressionBlockSize = 1024;
+    uint64_t rowCount = 65535;
+
+    std::unique_ptr<orc::Writer> writer = myCreateWriter(
+                                      stripeSize,
+                                      compressionBlockSize,
+                                      orc::CompressionKind_NONE,
+                                      *type,
+                                      pool,
+                                      outFile.get(),
+                                      orc::FileVersion::v_0_11());
+
+
+    std::unique_ptr<orc::ColumnVectorBatch> batch = writer->createRowBatch(rowCount);
+    orc::StructVectorBatch *structBatch = dynamic_cast<orc::StructVectorBatch *>(batch.get());
+    orc::StringVectorBatch *varcharBatch = dynamic_cast<orc::StringVectorBatch *>(structBatch->fields[0]);
+
+    char scratch[100];
+    char dataBuffer[327675];
+    uint64_t offset = 0;
+    int64_t len;
+
+    for (uint64_t i = 0; i < rowCount; ++i) {
+        len = sprintf(scratch, "%ld", i);
+        varcharBatch->data[i] = dataBuffer + offset;
+        varcharBatch->length[i] = static_cast<int64_t>(len);
+        memcpy(dataBuffer + offset, scratch, len);
+        offset += len;
+    }
+
+    structBatch->numElements = rowCount;
+    varcharBatch->numElements = rowCount;
+
+    writer->add(*batch);
+    writer->close();
+}
+
+void test_varchar() {
+    std::unique_ptr<orc::OutputStream> outFile = orc::writeLocalFile("file-varchar.orc");
+    orc::MemoryPool *pool = orc::getDefaultPool();
+
+    // length of strings can vary
+    // will clip the length of the string to maximum 4 bytes
+    ORC_UNIQUE_PTR<orc::Type> type(orc::Type::buildTypeFromString("struct<col1:varchar(4)>"));
+
+    uint64_t stripeSize = 1024;
+    uint64_t compressionBlockSize = 1024;
+    uint64_t rowCount = 65535;
+
+    std::unique_ptr<orc::Writer> writer = myCreateWriter(
+                                      stripeSize,
+                                      compressionBlockSize,
+                                      orc::CompressionKind_NONE,
+                                      *type,
+                                      pool,
+                                      outFile.get(),
+                                      orc::FileVersion::v_0_11());
+
+
+    std::unique_ptr<orc::ColumnVectorBatch> batch = writer->createRowBatch(rowCount);
+    orc::StructVectorBatch *structBatch = dynamic_cast<orc::StructVectorBatch *>(batch.get());
+    orc::StringVectorBatch *varcharBatch = dynamic_cast<orc::StringVectorBatch *>(structBatch->fields[0]);
+
+    char scratch[100];
+    char dataBuffer[327675];
+    uint64_t offset = 0;
+    int64_t len;
+
+    for (uint64_t i = 0; i < rowCount; ++i) {
+        len = sprintf(scratch, "%ld", i);
+        varcharBatch->data[i] = dataBuffer + offset;
+        varcharBatch->length[i] = static_cast<int64_t>(len);
+        memcpy(dataBuffer + offset, scratch, len);
+        offset += len;
+    }
+
+    structBatch->numElements = rowCount;
+    varcharBatch->numElements = rowCount;
+
+    writer->add(*batch);
+    writer->close();
+}
+
 int main(int argc, char const *argv[]) {
     if (argc > 1) {
         switch (argv[1][0]) {
@@ -411,6 +506,14 @@ int main(int argc, char const *argv[]) {
 
         case '7':
             test_string();
+            break;
+
+        case '8':
+            test_char();
+            break;
+
+        case '9':
+            test_varchar();
             break;
 
         default:
