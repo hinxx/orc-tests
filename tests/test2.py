@@ -9,6 +9,15 @@ import json
 import datetime
 import os
 import requests
+import sys
+
+
+# root data path
+ROOT_PATH = './'
+if len(sys.argv) > 1:
+    ROOT_PATH = sys.argv[1]
+if not os.path.exists(ROOT_PATH):
+    os.makedirs(ROOT_PATH)
 
 NUM_THREADS = 3
 NUM_PV_PER_THREAD = 10
@@ -73,7 +82,7 @@ def get_info(pvname):
     url_stub = 'http://%s.tn.esss.lu.se:17665/mgmt/bpl/getPVDetails'
 
     url = url_stub % archiver
-    local_info_file = './aa-info/'+pvname+'.json'
+    local_info_file = ROOT_PATH+'aa-info/'+pvname+'.json'
     if not os.path.exists(local_info_file):
         params = {'pv': pvname}
         res = requests.get(url, params=params)
