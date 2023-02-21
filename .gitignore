@@ -2,6 +2,9 @@ build-1.8.2
 install-1.8.2
 orc-1.8.2
 orc-1.8.2.tar.gz
+python
 tests/test1
 tests/*.orc
 tests/test2
+tests/aa-info
+tests/aa-data
