@@ -1,6 +1,7 @@
 from time import sleep, perf_counter
 from threading import Thread, Lock
 
+import curses
 import numpy as np
 import pyarrow as pa
 from pyarrow import orc
@@ -18,9 +19,11 @@ if len(sys.argv) > 1:
     ROOT_PATH = sys.argv[1]
 if not os.path.exists(ROOT_PATH):
     os.makedirs(ROOT_PATH)
+if not os.path.exists(ROOT_PATH+'aa-info'):
+    os.makedirs(ROOT_PATH+'aa-info')
 
-NUM_THREADS = 3
-NUM_PV_PER_THREAD = 10
+NUM_THREADS = 20
+NUM_PV_PER_THREAD = 1000
 
 threads = [None] * NUM_THREADS
 
@@ -32,31 +35,9 @@ orc_schema = pa.schema([
     ('string', pa.string())
 ])
 
+stdscr = curses.initscr()
 
 
-'''
-def task(work, id):
-    # print(f'Starting the task {id}...')
-
-    total = len(work['payload'])
-    pvnames = []
-    while not work['done']:
-        with work['lock']:
-            start = work['payload_offset']
-            size = min(10000, total - work['payload_offset'])
-            pvnames = work['payload'][start:start+size]
-            work['payload_offset'] = start + size
-            if work['payload_offset'] == total:
-                work['done'] = True
-
-        print('thread %d : start %d, size %d, pvnames %d' % (id, start, size, len(pvnames)))
-
-        # simulate work in progress
-        sleep(1)
-
-    work['results'][id] = id + 100
-    # print(f'The task {id} completed')
-'''
 
 def get_data(pvname, start, end):
     archiver = 'archiver-01'
@@ -66,7 +47,7 @@ def get_data(pvname, start, end):
             'from': start.isoformat() + 'Z',
             'to': end.isoformat() + 'Z'}
     res = requests.get(url, params=params)
-    print(res.request.url)
+    # print(res.request.url)
     if res.status_code == requests.codes.ok:
         # print('sucess', url)
         return res.json()
@@ -86,6 +67,7 @@ def get_info(pvname):
     if not os.path.exists(local_info_file):
         params = {'pv': pvname}
         res = requests.get(url, params=params)
+        # print(res.request.url)
         if res.status_code == requests.codes.ok:
             with open(local_info_file, 'w') as fp:
                 json.dump(res.json(), fp, indent=2)
@@ -105,7 +87,7 @@ def get_dbr(pvname):
 
 
 def task(work, id):
-    print('Starting the task %d: %s ... %s, size %d' % (id, work['start'], work['end'], len(work['payload'])))
+    # print('Starting the task %d: %s ... %s, size %d' % (id, work['start'], work['end'], len(work['payload'])))
 
     pvnames = pd.Series(dtype='string', name='pvname')
     timestamps = pd.Series(dtype='datetime64[ns]', name='timestamp')
@@ -114,7 +96,9 @@ def task(work, id):
     strings = pd.Series(dtype='string', name='string')
 
     for pvname in work['payload']:
-        print('pvname', pvname)
+        # print('pvname', pvname)
+        work['pvname'] = pvname
+        work['count'] += 1
         dbr = get_dbr(pvname)
         data = get_data(pvname, work['start'], work['end'] )
         if dbr and data and len(data) and 'data' in data[0] and len(data[0]['data']):
@@ -139,7 +123,7 @@ def task(work, id):
                 integers = pd.concat([integers, pd.Series(num * [None], dtype='Int64')], ignore_index=True)
                 floats = pd.concat([floats, pd.Series(num * [None], dtype='float64')], ignore_index=True)
             else:
-                print('unhandled DBR:', dbr)
+                # print('unhandled DBR:', dbr)
                 continue
 
             pvnames = pd.concat([pvnames, pd.Series(num * [pvname], dtype='string')], ignore_index=True)
@@ -156,83 +140,116 @@ def task(work, id):
         'string': strings
     })
 
-    print(f'The task {id} completed')
+    # print(f'The task {id} completed')
+    work['done'] = True
 
 
-jdata = None
-with open('PBI-archiver-01.json') as fp:
-    jdata = json.load(fp)
-print('handling %d pvs' % len(jdata))
+def mon_task(work):
+    run = True
+    while run:
+        done = 0
+        for n in range(len(work)):
+            stdscr.addstr(n, 0, '%d: %10d  %s\n' % (n, work[n]['count'], work[n]['pvname']))
+            if work[n]['done']:
+                done += 1
+        stdscr.refresh()
+
+        if done >= len(work):
+            run = False
+        else:
+            sleep(1)
+
+def main():
+    jdata = None
+    with open('PBI-archiver-01.json') as fp:
+        jdata = json.load(fp)
+    # print('handling %d pvs' % len(jdata))
+
+    start_time = perf_counter()
+
+    # start_date = '2021-01-01'
+    # end_date = '2023-03-01'
+    start_date = '2022-07-11'
+    end_date = '2022-07-12'
+
+    total = len(jdata)
+    # total = 100
+
+    # Clear screen
+    stdscr.clear()
+
+    writer = orc.ORCWriter('demo2.orc', dictionary_key_size_threshold=1)
+
+    last = {}
+    dt = datetime.datetime.fromisoformat(start_date)
+    end_dt = datetime.datetime.fromisoformat(end_date)
+    work = [None] * NUM_THREADS
+    # go over the desired timeframe
+    while dt < end_dt:
+        range_start = dt
+        range_end = dt + datetime.timedelta(hours=1)
+        # range_end = dt + datetime.timedelta(days=1)
+
+        # go over all the pv names and start N threads
+        offset = 0
+        while offset < total:
+            threads = [None] * NUM_THREADS
+            for n in range(len(threads)):
+                start = offset
+                size = min(NUM_PV_PER_THREAD, total - offset)
+                payload = jdata[start:start+size]
+                offset = start + size
+
+                w = {
+                    'start': range_start,
+                    'end': range_end,
+                    'payload': payload,
+                    'last': last,
+                    'result': None,
+                    'pvname': None,
+                    'count': 0,
+                    'done': False
+                }
+                work[n] = w
+
+                threads[n] = Thread(target=task, args=(w, n))
+                threads[n].start()
+
+                if offset == total:
+                    break
+
+            mon_thread = Thread(target=mon_task, args=(work, ))
+            mon_thread.start()
+
+            # wait for the threads to complete
+            for n in range(len(threads)):
+                if threads[n] is not None:
+                    threads[n].join()
+
+            mon_thread.join()
+
+            # handle the results
+            dfs = []
+            for n in range(len(threads)):
+                if threads[n] is not None:
+                    # print(n, 'results, shape', work[n]['result'].shape)
+                    # print(work[n]['result'])
+                    dfs.append(work[n]['result'])
+
+            df = pd.concat(dfs, ignore_index=True)
+            df = df.set_index('timestamp')
+
+            table = pa.table(df, schema=orc_schema)
+            table.sort_by('timestamp')
+
+            writer.write(table)
+
+        dt = range_end
+
+    end_time = perf_counter()
+
+    # print(f'It took {end_time- start_time: 0.2f} second(s) to complete.')
 
 
-start_time = perf_counter()
-
-# start_date = '2021-01-01'
-# end_date = '2023-03-01'
-start_date = '2022-07-11'
-end_date = '2022-07-12'
-
-# total = len(jdata)
-total = 100
-
-writer = orc.ORCWriter('demo1.orc', dictionary_key_size_threshold=1)
-
-last = {}
-dt = datetime.datetime.fromisoformat(start_date)
-end_dt = datetime.datetime.fromisoformat(end_date)
-work = [None] * NUM_THREADS
-# go over the desired timeframe
-while dt < end_dt:
-    range_start = dt
-    # range_end = dt + datetime.timedelta(hours=1)
-    range_end = dt + datetime.timedelta(days=1)
-
-    # go over all the pv names and start N threads
-    offset = 0
-    while offset < total:
-        threads = [None] * NUM_THREADS
-        for n in range(len(threads)):
-            start = offset
-            size = min(NUM_PV_PER_THREAD, total - offset)
-            payload = jdata[start:start+size]
-            offset = start + size
-
-            w = {
-                'start': range_start,
-                'end': range_end,
-                'payload': payload,
-                'last': last,
-                'result': None,
-            }
-            work[n] = w
-
-            threads[n] = Thread(target=task, args=(w, n))
-            threads[n].start()
-
-            if offset == total:
-                break
-
-        # wait for the threads to complete
-        for n in range(len(threads)):
-            if threads[n] is not None:
-                threads[n].join()
-
-        # handle the results
-        dfs = []
-        for n in range(len(threads)):
-            if threads[n] is not None:
-                print(n, 'results, shape', work[n]['result'].shape)
-                print(work[n]['result'])
-                dfs.append(work[n]['result'])
-
-        df = pd.concat(dfs, ignore_index=True)
-        df = df.set_index('timestamp')
-
-        table = pa.table(df, schema=orc_schema)
-        writer.write(table)
-
-    dt = range_end
-
-end_time = perf_counter()
-
-print(f'It took {end_time- start_time: 0.2f} second(s) to complete.')
+main()
+curses.endwin()
