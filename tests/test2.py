@@ -12,6 +12,11 @@ import os
 import requests
 import sys
 
+# Will get the data and info for a list of pvs from the archiver and 
+# write an ORC file using a schema without an union.
+# Using pandas to extract initial data from json.
+# Using pandas for building the pyarrow table.
+# No support for waveforms.
 
 # root data path
 ROOT_PATH = './'

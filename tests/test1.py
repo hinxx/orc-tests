@@ -7,6 +7,9 @@ import datetime
 import stat
 import os
 
+# Some preliminary code for working with the archiver
+# and creating ORC files..
+
 
 def convert_single(filename):
     '''

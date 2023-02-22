@@ -12,6 +12,17 @@ import requests
 from array import array
 
 
+# Will get the data and info for a list of pvs from the archiver and 
+# write an ORC file using a schema without an union.
+# Using pandas only to extract initial data from json.
+# Not using pandas for building the pyarrow table because I thought
+# there was an issue with pandas binary type support (seems not as per
+# https://github.com/pandas-dev/pandas/issues/51526); building of the
+# arrays for the pyarrow table is done using python lists.
+# Waveforms (only byte sized type) are supported by converting
+# the list of values to a binary string and then saving that
+# as binary column.
+
 
 NUM_THREADS = 1
 NUM_PV_PER_THREAD = 10
