@@ -12,8 +12,8 @@ import requests
 from array import array
 
 
-# Will get the data and info for a list of pvs from the archiver and 
-# write a parquet file using a schema without an union.
+# Will get the data and info for a list of pvs from the archiver and
+# write partitioned parquet files using a schema without an union.
 # Using pandas only to extract initial data from json.
 # Not using pandas for building the pyarrow table because I thought
 # there was an issue with pandas binary type support (seems not as per
@@ -22,7 +22,7 @@ from array import array
 # Waveforms (only byte sized type) are supported by converting
 # the list of values to a binary string and then saving that
 # as binary column.
-
+# NOTE: Using version='2.6' allows us to use ns resolution timestamp.
 
 NUM_THREADS = 1
 NUM_PV_PER_THREAD = 10
@@ -164,7 +164,7 @@ def task(work, id):
 
             # pvnames = pd.concat([pvnames, pd.Series(num * [pvname], dtype='string')], ignore_index=True)
             # timestamps = pd.concat([timestamps, pd.to_datetime(df["secs"] + df["nanos"] * 1e-9, unit="s")], ignore_index=True)
-            
+
             pvnames += num * [pvname]
             partition1 += num * [pvname.split(':')[0]]
             # data type will be pandas Timestamp()
