@@ -166,6 +166,9 @@ def task(work, id):
             # timestamps = pd.concat([timestamps, pd.to_datetime(df["secs"] + df["nanos"] * 1e-9, unit="s")], ignore_index=True)
 
             pvnames += num * [pvname]
+            # create a partition string 'sec-sub' from a pv name
+            # when partitioned dataset is written this column is removed from the files and a directory structure
+            # with values of this column is created instead
             partition1 += num * [pvname.split(':')[0]]
             # data type will be pandas Timestamp()
             timestamps += pd.to_datetime(df["secs"] + df["nanos"] * 1e-9, unit="s").to_list()
