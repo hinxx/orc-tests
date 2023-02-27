@@ -5,6 +5,7 @@ orc-1.8.2.tar.gz
 python
 tests/test1
 tests/*.orc
+tests/*.parquet
 tests/test2
 tests/aa-info
 tests/aa-data
