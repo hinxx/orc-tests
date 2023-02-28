@@ -83,42 +83,50 @@ def task1(work, id):
     ts = work['ts']
     num = len(work['pvs'])
     filename = work['filestub'] % id
-    final_rows = work['event_count'] * work['day_count']
 
     writer = parquet.ParquetWriter(filename, schema=work['schema'], version='2.6')
     pvnames = []
-    timestamps = []
-    integers = []
 
     num_events = 0
-    num_days = 0
+    row_count = num * work['event_count']
+    num_rows = 0
+    batch_max_size = work['batch_size']
+    # print('orig batch_max_size', batch_max_size)
+    if batch_max_size > row_count:
+        batch_max_size = row_count
+    # print('1 batch_max_size', batch_max_size)
+    # work in batches that are multiples of number of pvs
+    if (batch_max_size % num) != 0:
+        batch_max_size = int((batch_max_size / num)) * num
+    # print('2 batch_max_size', batch_max_size)
+
     start_time = perf_counter()
 
-    while num_days < work['day_count']:
-        timestamps += num * [ts]
-        tss = int(datetime.timestamp(ts)*1e6)
-        integers += [tss + n for n in range(num)]
+    # generate desired amount of rows
+    while num_rows < row_count:
+        batch_size = min(batch_max_size, row_count - num_rows)
+        batch_rows = 0
+        timestamps = []
+        integers = []
+        # handle rows in batches that do not clog the system
+        while batch_rows < batch_size:
+            timestamps += num * [ts]
+            tss = int(datetime.timestamp(ts)*1e6)
+            integers += [tss + n for n in range(num)]
 
-        # next event / time slice
-        ts = ts + timedelta(milliseconds=72)
-        num_events += 1
+            # next event / time slice
+            ts = ts + timedelta(milliseconds=72)
+            num_events += 1
+            batch_rows += num
+            num_rows += num
 
-        if (num_events % 1000) == 0:
-            print('\rthread %d event %d / %d' % (id, num_events , work['event_count']), end='')
+        print('\rthread %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'WRITING', num_events, work['event_count'], num_rows, row_count), end='')
+        pvnames = int(batch_rows / num) * work['pvs']
+        table = pa.table([pvnames, timestamps, integers], schema=work['schema'])
+        # table.sort_by('timestamp')
+        writer.write(table)
 
-        if num_events == work['event_count']:
-            print('\rthread %d event %d / %d' % (id, num_events , work['event_count']))
-            num_days += 1
-            print('\rthread %d WRITING day %d / %d                 ' % (id, num_days, work['day_count']))
-            pvnames = num_events * work['pvs']
-            table = pa.table([pvnames, timestamps, integers], schema=work['schema'])
-            # table.sort_by('timestamp')
-            writer.write(table)
-            timestamps = []
-            integers = []
-            num_events = 0
-
-    print('\rthread %d DONE day %d / %d                 ' % (id, num_days, work['day_count']))
+    print('\rthread %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
     end_time = perf_counter()
     print('thread %d took %.2f second(s) to complete.' % (id, end_time - start_time))
 
@@ -151,7 +159,7 @@ def work1(pvs, args):
             'filestub': work_name+'-%d.parquet',
             'schema': schema,
             'event_count': args.events,
-            'day_count': args.days
+            'batch_size': args.batch_size
         }
         work[n] = w
         threads[n] = Thread(target=task1, args=(w, n))
@@ -166,7 +174,7 @@ def work1(pvs, args):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('work', action='store')
-parser.add_argument('-d', '--days', action='store', default='1', type=int)
+parser.add_argument('-b', '--batch_size', action='store', default='1000000', type=int)
 parser.add_argument('-p', '--pv_count', action='store', default='200', type=int)
 parser.add_argument('-t', '--threads', action='store', default='1', type=int)
 parser.add_argument('-e', '--events', action='store', default='10000', type=int)
