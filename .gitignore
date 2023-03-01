@@ -11,3 +11,4 @@ tests/aa-info
 tests/aa-data
 tests/old
 tests/pq-data
+tests/orc-data
