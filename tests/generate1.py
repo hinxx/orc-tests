@@ -22,10 +22,8 @@ import itertools
 # Goal is to a) evaluate these frameworks and b) determine best
 # practices for file contents/sizes/..
 
-# wget https://www.mit.edu/~ecprice/wordlist.10000
-wordlist = 'wordlist.10000'
-ess_wordlist = 'ess-prefixes.txt'
-
+prefix_file = 'ess-prefixes.txt'
+param_file = 'ess-params.txt'
 
 def generate_pv_names(filename):
     if os.path.exists(filename):
@@ -34,16 +32,16 @@ def generate_pv_names(filename):
             return json.load(fp)
         return False
 
-    # take some random words to be used as pv parameters
+    # take ess parameters
     # first line in the file is CSV header: 'a'
-    raw = pd.read_csv(wordlist)
-    # get the words that are between 4 and 9 chars long
-    mask = (raw['a'].str.len() > 3) & (raw['a'].str.len() < 10)
+    raw = pd.read_csv(param_file)
+    # get the words that are longer than 4
+    mask = (raw['a'].str.len() > 3)
     raw = raw.loc[mask]
     params_all = raw['a'].to_list()
 
     # take ess prefixes
-    raw = pd.read_csv(ess_wordlist)
+    raw = pd.read_csv(prefix_file)
     # get the words that are longer than 8
     mask = (raw['a'].str.len() > 12)
     raw = raw.loc[mask]
@@ -83,6 +81,7 @@ def task1(work, id):
     ts = work['ts']
     num = len(work['pvs'])
     filename = work['filestub'] % id
+    res = work['result']
 
     writer = parquet.ParquetWriter(filename, schema=work['schema'], version='2.6')
     pvnames = []
@@ -101,6 +100,9 @@ def task1(work, id):
     # print('2 batch_max_size', batch_max_size)
 
     start_time = perf_counter()
+
+    res['integer_range'] = [int(datetime.timestamp(ts)*1e6)]
+    res['timestamp_range'] = [str(ts)]
 
     # generate desired amount of rows
     while num_rows < row_count:
@@ -125,6 +127,9 @@ def task1(work, id):
         table = pa.table([pvnames, timestamps, integers], schema=work['schema'])
         # table.sort_by('timestamp')
         writer.write(table)
+
+    res['integer_range'].append(integers[-1])
+    res['timestamp_range'].append(str(timestamps[-1]))
 
     print('\rthread %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
     end_time = perf_counter()
@@ -159,7 +164,11 @@ def work1(pvs, args):
             'filestub': work_name+'-%d.parquet',
             'schema': schema,
             'event_count': args.events,
-            'batch_size': args.batch_size
+            'batch_size': args.batch_size,
+            'result': {
+                'timestamp_range': None,
+                'integer_range': None
+            }
         }
         work[n] = w
         threads[n] = Thread(target=task1, args=(w, n))
@@ -168,6 +177,16 @@ def work1(pvs, args):
     # wait for the threads to complete
     for n in range(len(threads)):
         threads[n].join()
+
+    # save the work parameters and results in a single json file
+    results = []
+    for w in work:
+        if w is not None:
+            w['schema'] = w['schema'].to_string()
+            w['ts'] = str(w['ts'])
+            results.append(w)
+    with open(work_name+'-report.json', 'w') as fp:
+        json.dump(results, fp, indent=2)
 
 
 ################################################################################################
