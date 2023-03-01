@@ -139,7 +139,6 @@ def task1(work, id):
 
 
 def work1(pvs, args):
-    work_name = 'work1'
     start_date = '2023-02-11'
     work = [None] * args.threads
     threads = [None] * args.threads
@@ -154,11 +153,15 @@ def work1(pvs, args):
         # ('binary', pa.binary())
     ])
 
+    if args.pv_sort:
+        pvs.sort()
+
     # start the threads
     for n in range(len(threads)):
         s = n * args.pv_count
         e = (n + 1) * args.pv_count
         w = {
+            'id': n,
             'ts': datetime.fromisoformat(start_date),
             'pvs': pvs[s:e],
             'filestub': args.path+'/'+args.work+'-%d.parquet',
@@ -179,12 +182,23 @@ def work1(pvs, args):
         threads[n].join()
 
     # save the work parameters and results in a single json file
-    results = []
+    results = {
+        'schema': schema.to_string(),
+        'args': str(args),
+        'data': []
+    }
     for w in work:
         if w is not None:
-            w['schema'] = w['schema'].to_string()
-            w['ts'] = str(w['ts'])
-            results.append(w)
+            # w['schema'] = w['schema'].to_string()
+            # w['ts'] = str(w['ts'])
+            r = {
+                'id': w['id'],
+                'filename': w['filestub'] % w['id'],
+                'pvs': w['pvs'],
+                'timestamp_range': w['result']['timestamp_range'],
+                'integer_range': w['result']['integer_range']
+            }
+            results['data'].append(r)
     with open(args.path+'/'+args.work+'-report.json', 'w') as fp:
         json.dump(results, fp, indent=2)
 
@@ -198,6 +212,7 @@ parser.add_argument('-p', '--pv_count', action='store', default='200', type=int)
 parser.add_argument('-t', '--threads', action='store', default='1', type=int)
 parser.add_argument('-e', '--events', action='store', default='10000', type=int)
 parser.add_argument('-P', '--path', action='store', default='pq-data', type=str)
+parser.add_argument('-s', '--pv_sort', action="store_true", default=False)
 args = parser.parse_args()
 print('args:', args)
 
