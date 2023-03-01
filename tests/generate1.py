@@ -122,7 +122,9 @@ def task1(work, id):
             batch_rows += num
             num_rows += num
 
-        print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'WRITING', num_events, work['event_count'], num_rows, row_count), end='')
+        # print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'WRITING', num_events, work['event_count'], num_rows, row_count), end='')
+        print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows (%3d %%)' %
+            (id, 'WRITING', num_events, work['event_count'], num_rows, row_count, (num_rows / row_count) * 100.0), end='')
         pvnames = int(batch_rows / num) * work['pvs']
         table = pa.table([pvnames, timestamps, integers], schema=work['schema'])
         # table.sort_by('timestamp')
@@ -131,7 +133,9 @@ def task1(work, id):
     res['integer_range'].append(integers[-1])
     res['timestamp_range'].append(str(timestamps[-1]))
 
-    print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
+    # print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
+    print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows (100 %%)' %
+        (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
     end_time = perf_counter()
     print('worker %d took %.2f second(s) to complete.' % (id, end_time - start_time))
 

@@ -9,6 +9,7 @@ import pyarrow as pa
 from pyarrow import parquet
 import argparse
 import itertools
+import sys, inspect
 
 
 # This script will generate parquet files containing defined amount
@@ -87,8 +88,10 @@ class Generator(object):
             self.all_pvs.sort()
 
         self.initial_timestamp = datetime.fromisoformat('2023-02-11')
-        
+
         self.schema = None
+
+        self.item_count = args.item_count
 
         self.pv_count = args.pv_count
         self.event_count = args.event_count
@@ -157,11 +160,6 @@ class Generator(object):
                 json.dump(results, fp, indent=2)
 
     def task(self, wid, result):
-        # print('wid', wid)
-        # print('self path', self.path)
-        # print('len pvs', len(pvs))
-        # result['done'] = True
-
         print('worker %d starting..' % wid)
         s = wid * self.pv_count
         e = (wid + 1) * self.pv_count
@@ -174,6 +172,7 @@ class Generator(object):
         num_events = 0
         num_rows = 0
         ts = self.initial_timestamp
+        # schema field count without pvname and timestamp
         schema_len = len(self.schema.names) - 2
 
         start_time = perf_counter()
@@ -187,17 +186,14 @@ class Generator(object):
             num_batch_rows = 0
             timestamps = []
 
-            # integers = []
+            # each schema field is represented by a list
             values = [[] for _ in range(schema_len)]
 
             # handle rows in batches that do not clog the system
             while num_batch_rows < batch_size:
                 timestamps += self.pv_count * [ts]
 
-                # tss = int(datetime.timestamp(ts)*1e6)
-                # integers += [tss + n for n in range(self.pv_count)]
-                # integers += self.gen_values(ts)
-                values = self.gen_values(ts, values)
+                self.gen_values(ts, values)
 
                 # next event / time slice
                 ts = ts + timedelta(milliseconds=72)
@@ -205,9 +201,9 @@ class Generator(object):
                 num_batch_rows += self.pv_count
                 num_rows += self.pv_count
 
-            print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (wid, 'WRITING', num_events, self.event_count, num_rows, self.row_count), end='')
+            print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows (%3d %%)' %
+                (wid, 'WRITING', num_events, self.event_count, num_rows, self.row_count, (num_rows / self.row_count) * 100.0), end='')
             pvnames = int(num_batch_rows / self.pv_count) * pvs
-            # table = pa.table([pvnames, timestamps, integers], schema=self.schema)
             table = pa.table([pvnames, timestamps] + values, schema=self.schema)
             # table.sort_by('timestamp')
             writer.write(table)
@@ -215,7 +211,8 @@ class Generator(object):
         # res['integer_range'].append(integers[-1])
         # res['timestamp_range'].append(str(timestamps[-1]))
 
-        print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (wid, 'DONE', num_events, self.event_count, num_rows, self.row_count))
+        print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows (100 %%)' %
+            (wid, 'DONE', num_events, self.event_count, num_rows, self.row_count))
         end_time = perf_counter()
         print('worker %d took %.2f second(s) to complete.' % (wid, end_time - start_time))
 
@@ -258,7 +255,6 @@ class GenerateArrayInteger(Generator):
                                 ('timestamp', pa.timestamp('ns')),
                                 ('integer', pa.list_(pa.int64()))
                             ])
-        self.array_size = 1000
 
     def gen_values(self, ts, values):
         # values is a list of nested lists each corresponding to a schema field
@@ -266,7 +262,7 @@ class GenerateArrayInteger(Generator):
         # NOTE: the pvname and timestamp are not included!
         tss = int(datetime.timestamp(ts)*1e6)
         # we know our schema contains only single value field
-        values[0] += [self.pv_count * [tss + n for n in range(self.array_size)]]
+        values[0] += self.pv_count * [[tss + n for n in range(self.item_count)]]
         return values
 
 
@@ -292,142 +288,77 @@ class GenerateScalarFloat(Generator):
         return values
 
 
+class GenerateScalarIntegerFloat(Generator):
+    def __init__(self):
+        super().__init__()
 
-'''
-def task1(work, id):
-    print('worker %d starting..' % (id))
+    def setup(self, args):
+        self.setup_(args)
+        self.schema = pa.schema([
+                                ('pvname', pa.string()),
+                                ('timestamp', pa.timestamp('ns')),
+                                ('integer', pa.int64()),
+                                ('float', pa.float64())
+                            ])
 
-    ts = work['ts']
-    num = len(work['pvs'])
-    filename = work['filestub'] % id
-    res = work['result']
-
-    writer = parquet.ParquetWriter(filename, schema=work['schema'], version='2.6')
-    pvnames = []
-
-    num_events = 0
-    row_count = num * work['event_count']
-    num_rows = 0
-    batch_max_size = work['batch_size']
-    # print('orig batch_max_size', batch_max_size)
-    if batch_max_size > row_count:
-        batch_max_size = row_count
-    # print('1 batch_max_size', batch_max_size)
-    # work in batches that are multiples of number of pvs
-    if (batch_max_size % num) != 0:
-        batch_max_size = int((batch_max_size / num)) * num
-    # print('2 batch_max_size', batch_max_size)
-
-    start_time = perf_counter()
-
-    res['integer_range'] = [int(datetime.timestamp(ts)*1e6)]
-    res['timestamp_range'] = [str(ts)]
-
-    # generate desired amount of rows
-    while num_rows < row_count:
-        batch_size = min(batch_max_size, row_count - num_rows)
-        batch_rows = 0
-        timestamps = []
-        integers = []
-        # handle rows in batches that do not clog the system
-        while batch_rows < batch_size:
-            timestamps += num * [ts]
-            tss = int(datetime.timestamp(ts)*1e6)
-            integers += [tss + n for n in range(num)]
-
-            # next event / time slice
-            ts = ts + timedelta(milliseconds=72)
-            num_events += 1
-            batch_rows += num
-            num_rows += num
-
-        print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'WRITING', num_events, work['event_count'], num_rows, row_count), end='')
-        pvnames = int(batch_rows / num) * work['pvs']
-        table = pa.table([pvnames, timestamps, integers], schema=work['schema'])
-        # table.sort_by('timestamp')
-        writer.write(table)
-
-    res['integer_range'].append(integers[-1])
-    res['timestamp_range'].append(str(timestamps[-1]))
-
-    print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
-    end_time = perf_counter()
-    print('worker %d took %.2f second(s) to complete.' % (id, end_time - start_time))
-
-    writer.close()
+    def gen_values(self, ts, values):
+        # values is a list of nested lists each corresponding to a schema field
+        # this function needs to add new values to each of the nested list
+        # NOTE: the pvname and timestamp are not included!
+        # integer column
+        tss = int(datetime.timestamp(ts)*1e6)
+        values[0] += [tss + n for n in range(self.pv_count)]
+        # float column
+        tss = float(datetime.timestamp(ts)*1e6)
+        values[1] += [tss + n for n in range(self.pv_count)]
+        return values
 
 
-def work1(pvs, args):
-    start_date = '2023-02-11'
-    work = [None] * args.workers
-    workers = [None] * args.workers
+class GenerateScalarIntegerFloatNulls(Generator):
+    def __init__(self):
+        super().__init__()
 
-    schema = pa.schema([
-        ('pvname', pa.string()),
-        # ('part1', pa.string()),
-        ('timestamp', pa.timestamp('ns')),
-        ('integer', pa.int64()),
-        # ('float', pa.float64()),
-        # ('string', pa.string()),
-        # ('binary', pa.binary())
-    ])
+    def setup(self, args):
+        self.setup_(args)
+        self.schema = pa.schema([
+                                ('pvname', pa.string()),
+                                ('timestamp', pa.timestamp('ns')),
+                                ('tag', pa.int8()),
+                                ('integer', pa.int64()),
+                                ('float', pa.float64())
+                            ])
 
-    if args.pv_sort:
-        pvs.sort()
+    def gen_values(self, ts, values):
+        # values is a list of nested lists each corresponding to a schema field
+        # this function needs to add new values to each of the nested list
+        # NOTE: the pvname and timestamp are not included!
+        # tag column: 1 = integer, 2 = float
+        values[0] += self.pv_count * [1]
+        # integer column
+        tss = int(datetime.timestamp(ts)*1e6)
+        values[1] += [tss + n for n in range(self.pv_count)]
+        # float column
+        tss = float(datetime.timestamp(ts)*1e6)
+        values[2] += self.pv_count * [None]
+        return values
 
-    path = args.path + '/' + args.run_name
-
-    # start the workers
-    for n in range(len(workers)):
-        s = n * args.pv_count
-        e = (n + 1) * args.pv_count
-        w = {
-            'id': n,
-            'ts': datetime.fromisoformat(start_date),
-            'pvs': pvs[s:e],
-            'filestub': path + '/' + args.work + '-%d.parquet',
-            'schema': schema,
-            'event_count': args.events,
-            'batch_size': args.batch_size,
-            'result': {
-                'timestamp_range': None,
-                'integer_range': None
-            }
-        }
-        work[n] = w
-        workers[n] = Process(target=task1, args=(w, n))
-        workers[n].start()
-
-    # wait for the workers to complete
-    for n in range(len(workers)):
-        workers[n].join()
-
-    # save the work parameters and results in a single json file
-    results = {
-        'schema': schema.to_string(),
-        'args': str(args),
-        'data': []
-    }
-    for w in work:
-        if w is not None:
-            r = {
-                'id': w['id'],
-                'filename': w['filestub'] % w['id'],
-                'pvs': w['pvs'],
-                'timestamp_range': w['result']['timestamp_range'],
-                'integer_range': w['result']['integer_range']
-            }
-            results['data'].append(r)
-    with open(path + '/' + args.work + '-report.json', 'w') as fp:
-        json.dump(results, fp, indent=2)
-'''
 
 ################################################################################################
 
+is_class_member = lambda member: inspect.isclass(member) and member.__module__ == __name__
+clsmembers = inspect.getmembers(sys.modules[__name__], is_class_member)
+# print(clsmembers)
+work_choices = []
+for n, t in clsmembers:
+    if n.startswith('Generate'):
+        work_choices.append(n[8:])
+
 parser = argparse.ArgumentParser()
-parser.add_argument('work', action='store')
+parser.add_argument('work', action='store', choices=work_choices)
+
 parser.add_argument('-b', '--batch_size', action='store', default='1000000', type=int)
 parser.add_argument('-p', '--pv_count', action='store', default='200', type=int)
+parser.add_argument('-i', '--item_count', action='store', default='1', type=int)
 parser.add_argument('-w', '--worker_count', action='store', default='1', type=int)
 parser.add_argument('-e', '--event_count', action='store', default='10000', type=int)
 parser.add_argument('-P', '--path', action='store', default='pq-data', type=str)
@@ -436,30 +367,6 @@ parser.add_argument('-n', '--run_name', action='store', default='', type=str)
 args = parser.parse_args()
 print('args:', args)
 
-# gen = GenerateScalarInteger()
-# gen = GenerateScalarFloat()
-gen = GenerateArrayInteger()
+gen = eval('Generate' + args.work+'()')
 gen.setup(args)
 gen.start()
-
-exit(2)
-
-
-if args.run_name == '':
-    now = datetime.now()
-    args.run_name = now.strftime('%Y-%m-%d-%H-%M-%S')
-
-path = args.path + '/' + args.run_name
-if not os.path.exists(path):
-    os.makedirs(path)
-
-pvs = generate_pv_names('fake-pvs.json')
-if pvs is None:
-    exit(1)
-
-print('have %d fake PVs..' % len(pvs))
-
-if args.work == 'work1':
-    work1(pvs, args)
-else:
-    print('work function %s not found!' % args.work)
