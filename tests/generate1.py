@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import random
 import os
-from threading import Thread
+from multiprocessing import Process
 from datetime import datetime, timedelta
 import pyarrow as pa
 from pyarrow import parquet
@@ -76,7 +76,7 @@ def generate_pv_names(filename):
 
 
 def task1(work, id):
-    print('thread %d starting..' % (id))
+    print('worker %d starting..' % (id))
 
     ts = work['ts']
     num = len(work['pvs'])
@@ -122,7 +122,7 @@ def task1(work, id):
             batch_rows += num
             num_rows += num
 
-        print('\rthread %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'WRITING', num_events, work['event_count'], num_rows, row_count), end='')
+        print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'WRITING', num_events, work['event_count'], num_rows, row_count), end='')
         pvnames = int(batch_rows / num) * work['pvs']
         table = pa.table([pvnames, timestamps, integers], schema=work['schema'])
         # table.sort_by('timestamp')
@@ -131,17 +131,17 @@ def task1(work, id):
     res['integer_range'].append(integers[-1])
     res['timestamp_range'].append(str(timestamps[-1]))
 
-    print('\rthread %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
+    print('\rworker %2d %15s %15d / %-15d events %15d / %-15d rows' % (id, 'DONE', num_events, work['event_count'], num_rows, row_count))
     end_time = perf_counter()
-    print('thread %d took %.2f second(s) to complete.' % (id, end_time - start_time))
+    print('worker %d took %.2f second(s) to complete.' % (id, end_time - start_time))
 
     writer.close()
 
 
 def work1(pvs, args):
     start_date = '2023-02-11'
-    work = [None] * args.threads
-    threads = [None] * args.threads
+    work = [None] * args.workers
+    workers = [None] * args.workers
 
     schema = pa.schema([
         ('pvname', pa.string()),
@@ -156,8 +156,8 @@ def work1(pvs, args):
     if args.pv_sort:
         pvs.sort()
 
-    # start the threads
-    for n in range(len(threads)):
+    # start the workers
+    for n in range(len(workers)):
         s = n * args.pv_count
         e = (n + 1) * args.pv_count
         w = {
@@ -174,12 +174,12 @@ def work1(pvs, args):
             }
         }
         work[n] = w
-        threads[n] = Thread(target=task1, args=(w, n))
-        threads[n].start()
+        workers[n] = Process(target=task1, args=(w, n))
+        workers[n].start()
 
-    # wait for the threads to complete
-    for n in range(len(threads)):
-        threads[n].join()
+    # wait for the workers to complete
+    for n in range(len(workers)):
+        workers[n].join()
 
     # save the work parameters and results in a single json file
     results = {
@@ -189,8 +189,6 @@ def work1(pvs, args):
     }
     for w in work:
         if w is not None:
-            # w['schema'] = w['schema'].to_string()
-            # w['ts'] = str(w['ts'])
             r = {
                 'id': w['id'],
                 'filename': w['filestub'] % w['id'],
@@ -209,7 +207,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('work', action='store')
 parser.add_argument('-b', '--batch_size', action='store', default='1000000', type=int)
 parser.add_argument('-p', '--pv_count', action='store', default='200', type=int)
-parser.add_argument('-t', '--threads', action='store', default='1', type=int)
+parser.add_argument('-w', '--workers', action='store', default='1', type=int)
 parser.add_argument('-e', '--events', action='store', default='10000', type=int)
 parser.add_argument('-P', '--path', action='store', default='pq-data', type=str)
 parser.add_argument('-s', '--pv_sort', action="store_true", default=False)
