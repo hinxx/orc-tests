@@ -156,6 +156,8 @@ def work1(pvs, args):
     if args.pv_sort:
         pvs.sort()
 
+    path = args.path + '/' + args.run_name
+
     # start the workers
     for n in range(len(workers)):
         s = n * args.pv_count
@@ -164,7 +166,7 @@ def work1(pvs, args):
             'id': n,
             'ts': datetime.fromisoformat(start_date),
             'pvs': pvs[s:e],
-            'filestub': args.path+'/'+args.work+'-%d.parquet',
+            'filestub': path + '/' + args.work + '-%d.parquet',
             'schema': schema,
             'event_count': args.events,
             'batch_size': args.batch_size,
@@ -197,7 +199,7 @@ def work1(pvs, args):
                 'integer_range': w['result']['integer_range']
             }
             results['data'].append(r)
-    with open(args.path+'/'+args.work+'-report.json', 'w') as fp:
+    with open(path + '/' + args.work + '-report.json', 'w') as fp:
         json.dump(results, fp, indent=2)
 
 
@@ -211,11 +213,17 @@ parser.add_argument('-w', '--workers', action='store', default='1', type=int)
 parser.add_argument('-e', '--events', action='store', default='10000', type=int)
 parser.add_argument('-P', '--path', action='store', default='pq-data', type=str)
 parser.add_argument('-s', '--pv_sort', action="store_true", default=False)
+parser.add_argument('-n', '--run_name', action='store', default='', type=str)
 args = parser.parse_args()
 print('args:', args)
 
-if not os.path.exists(args.path):
-    os.makedirs(args.path)
+if args.run_name == '':
+    now = datetime.now()
+    args.run_name = now.strftime('%Y-%m-%d-%H-%M-%S')
+
+path = args.path + '/' + args.run_name
+if not os.path.exists(path):
+    os.makedirs(path)
 
 pvs = generate_pv_names('fake-pvs.json')
 if pvs is None:
