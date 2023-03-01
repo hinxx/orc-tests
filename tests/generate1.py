@@ -161,7 +161,7 @@ def work1(pvs, args):
         w = {
             'ts': datetime.fromisoformat(start_date),
             'pvs': pvs[s:e],
-            'filestub': work_name+'-%d.parquet',
+            'filestub': args.path+'/'+args.work+'-%d.parquet',
             'schema': schema,
             'event_count': args.events,
             'batch_size': args.batch_size,
@@ -185,7 +185,7 @@ def work1(pvs, args):
             w['schema'] = w['schema'].to_string()
             w['ts'] = str(w['ts'])
             results.append(w)
-    with open(work_name+'-report.json', 'w') as fp:
+    with open(args.path+'/'+args.work+'-report.json', 'w') as fp:
         json.dump(results, fp, indent=2)
 
 
@@ -197,8 +197,12 @@ parser.add_argument('-b', '--batch_size', action='store', default='1000000', typ
 parser.add_argument('-p', '--pv_count', action='store', default='200', type=int)
 parser.add_argument('-t', '--threads', action='store', default='1', type=int)
 parser.add_argument('-e', '--events', action='store', default='10000', type=int)
+parser.add_argument('-P', '--path', action='store', default='pq-data', type=str)
 args = parser.parse_args()
 print('args:', args)
+
+if not os.path.exists(args.path):
+    os.makedirs(args.path)
 
 pvs = generate_pv_names('fake-pvs.json')
 if pvs is None:
