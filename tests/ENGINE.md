@@ -160,12 +160,40 @@ Polars doesn’t come with any tooling for running on a cluster, but it does hav
 https://kevinheavey.github.io/modern-polars/
 
 
-
 # pandas
 
 https://wesmckinney.com/blog/apache-arrow-pandas-internals/
 
 
-https://kevinheavey.github.io/modern-polars/
+
+# duckdb
+
+This is a standalone SQL and API processing toolkit that can be embedded in an app (c++, python) or used
+as a CLI tool to explore data. Data can be ingested from CSV, parquet, sqlite3, or directly from pandas dataframes, 
+numpy arrays or pyarrow tables and worked with using SQL.
+
+Utilizes multiple cores, loads data in chunks and allows extentions (parquet and slite3 support are impl. as extensions).
+
+Does not support ingesting ORC format.
+
+
+# rocksdb
+
+Key-value store DB engine. Not a database, but just and engine.
+Saves data in SSTables.
+
+# rocksdb + duckdb
+
+Idea: use RocksDB to ingest PV data into SSTables. Then use DuckDB to work with data by either 1) connect to RocksDB and issue get/scan queries or, 2) work with the SSTable(s) without a running RocksDB.
+
+DuckDB supports pluggable DB engines. Here is support for Sqlite
+
+https://github.com/duckdblabs/sqlite_scanner
+https://github.com/duckdblabs/sqlite_scanner/pull/25
+https://github.com/duckdb/duckdb/pull/6066
+
+The Postgres scanner is also here:
+
+https://github.com/duckdblabs/postgres_scanner
 
 

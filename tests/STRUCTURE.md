@@ -87,3 +87,20 @@ Table partitioning is a common optimization approach used in systems like Hive. 
 ## Partition and Bucket ORC Tables
 
 https://stackoverflow.com/a/51679761
+
+
+
+## duckDB
+
+https://github.com/duckdb/duckdb/discussions/6549
+
+How to handle columns of different data type in one table inside a duckDB query.
+It is possible but all the data values are converted to `varchar`.
+
+Does it make sense to do this? To take out bunch of different value types and try
+to do something with them (analysis or.. ).
+
+Even if the data type is the same, selecting random pvs and their stored data values
+is not really useful.
+
+

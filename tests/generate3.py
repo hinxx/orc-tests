@@ -10,6 +10,8 @@ from pyarrow import parquet
 import argparse
 import itertools
 import sys, inspect
+#from array import array
+import msgpack
 
 
 # This script will generate parquet files containing defined amount
@@ -340,6 +342,38 @@ class GenerateScalarIntegerFloatNulls(Generator):
         # float column
         tss = float(datetime.timestamp(ts)*1e6)
         values[2] += self.pv_count * [None]
+        return values
+
+
+class GenerateBinary(Generator):
+    def __init__(self):
+        super().__init__()
+
+    def setup(self, args):
+        self.setup_(args)
+        self.schema = pa.schema([
+                                ('pvname', pa.string()),
+                                ('timestamp', pa.timestamp('ns')),
+                                ('binary', pa.binary())
+                            ])
+
+    def gen_values(self, ts, values):
+        # values is a list of nested lists each corresponding to a schema field
+        # this function needs to add new values to each of the nested list
+        # NOTE: the pvname and timestamp are not included!
+        tss = int(datetime.timestamp(ts)*1e6)
+        # we know our schema contains only single value field
+
+        # values[0] += [tss + n for n in range(self.pv_count)]
+        # for item in df['val'].to_list():
+        #     binaries += [memoryview(array('B', item)).tobytes()]
+
+        # print('items:', items)
+        # item = [tss + n for n in range(self.item_count)]
+        # values[0] += self.pv_count * [memoryview(array('L', item)).tobytes()]
+
+        values[0] += [msgpack.packb(tss + n) for n in range(self.pv_count)]
+
         return values
 
 
