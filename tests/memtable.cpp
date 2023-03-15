@@ -149,6 +149,8 @@ struct Arena {
             // move the avail pointer
             current_->avail_ += size;
         }
+        printf("arena block %p free space %ld\n", current_, freeSpace());
+
         return ptr;
     }
 
@@ -179,11 +181,20 @@ struct Arena {
                 block->limit_ = (char *)block + sz;
                 block->avail_ = (char *)block + sizeof(*block);
                 block->next_ = NULL;
+                printf("created arena block %p free space %ld\n", block, freeSpace(block));
             }
         }
 
         block->avail_ += size;
         return block->avail_ - size;
+    }
+
+    size_t freeSpace(struct Block *block = nullptr) {
+        if (block != nullptr) {
+            return (block->limit_ - block->avail_);
+        } else {
+            return (current_->limit_ - current_->avail_);
+        }
     }
 
     struct Block head_;
@@ -197,6 +208,14 @@ struct Memtable {
         char *ptr = (char *)arena_.allocate(size + sizeof(struct DataPoint));
         struct DataPoint *dp = new (ptr) DataPoint(&arena_);
         return dp;
+    }
+
+    void insert(const u_int64_t ts, const char *name, const size_t name_len, const char *value, const size_t value_len) {
+        size_t size = DataPoint::ts_size_ + name_len + value_len;
+        struct DataPoint *dp = allocateDataPoint(size);
+        dp->set(ts, name, name_len, value, value_len);
+        dp->toString();
+        insert(dp);
     }
 
     void insert(struct DataPoint *dp) {
@@ -240,22 +259,20 @@ struct Memtable {
 int main(int argc, char const *argv[]) {
 
     struct Memtable mt;
-    struct DataPoint *dp = mt.allocateDataPoint(100);
-    // printf("dp %p\n", dp);
-
     u_int64_t ts = 1;
-    dp->set(ts, (const char *)"name", 4, (const char *)"value", 5);
+
+    // overallocated size
+    struct DataPoint *dp = mt.allocateDataPoint(100);
+    // manual initialization of data point
+    dp->set(ts, (const char *)"test", 4, (const char *)"manual", 6);
     dp->toString();
-    mt.insert(dp);
-    dp = mt.allocateDataPoint(100);
-    dp->set(ts + 1, (const char *)"blahblah", 8, (const char *)"with space value", 16);
-    dp->toString();
-    mt.insert(dp);
-    dp = mt.allocateDataPoint(100);
-    dp->set(ts, (const char *)"aaaaaa", 6, (const char *)"muchbetter", 10);
-    dp->toString();
+    // insertion in to binary tree
     mt.insert(dp);
 
+    // all of the above in one call
+    mt.insert(ts, (const char *)"name", 4, (const char *)"value", 5);
+    mt.insert(ts + 1, (const char *)"blahblah", 8, (const char *)"with space value", 16);
+    mt.insert(ts, (const char *)"aaaaaa", 6, (const char *)"muchbetter", 10);
     printf("IN ORDER:\n");
     mt.inorder();
 
