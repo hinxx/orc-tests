@@ -3,6 +3,9 @@
 #include <string.h>
 #include <assert.h>
 #include <endian.h>
+#include <linux/mman.h> // MAP_HUGE_2MB
+#include <sys/mman.h> // mmap, munmap
+
 #include <new>
 
 
@@ -126,15 +129,62 @@ struct Block {
 };
 
 struct Arena {
-    Arena() : head_(Block()), current_(&head_) {}
+    static constexpr size_t kPageSize = 4 * 1024;
+
+    Arena() : head_(Block()), current_(&head_), page_size_(kPageSize), mmapped_(false), hugetlb_(false) {}
 
     ~Arena() {
         struct Block *head, *tmp;
         head = head_.next_;
         while (head) {
             tmp = head->next_;
-            free(head);
+            memoryDeallocator(head);
             head = tmp;
+        }
+    }
+
+    void setMmapped(const bool flag) {
+        mmapped_ = flag;
+    }
+
+    void setMmapHuge(const bool flag) {
+        hugetlb_ = flag;
+    }
+
+    char *memoryAllocator(const size_t numPages) {
+        void *ptr = nullptr;
+        page_size_ = kPageSize;
+        if (mmapped_) {
+            int huge_flag = 0;
+            if (hugetlb_) {
+                // use 2 MiB huge page size
+                huge_flag = MAP_HUGETLB | MAP_HUGE_2MB;
+                // request multiple of 2 MiB
+                page_size_ = (1 << 21);
+            }
+            printf("mmap %ld bytes\n", numPages * page_size_);
+            ptr = mmap(nullptr, numPages * page_size_, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS | huge_flag, -1, 0);
+            if (ptr == MAP_FAILED) {
+                ptr = nullptr;
+            }
+        } else {
+            printf("malloc %ld bytes\n", numPages * page_size_);
+            ptr = malloc(numPages * page_size_);
+        }
+
+        assert(ptr != nullptr);
+        return (char *)ptr;
+    }
+
+    void memoryDeallocator(struct Block *block) {
+        size_t length = block->limit_ - (char *)block;
+        if (mmapped_) {
+            printf("munmap %ld bytes\n", length);
+            munmap(block, length);
+        } else {
+            printf("munmap %ld bytes\n", length);
+            free(block);
         }
     }
 
@@ -174,11 +224,11 @@ struct Arena {
                 block->avail_ = (char *)block + sizeof(*block);
             } else {
                 // allocate a block and use placement new to initialize Block
-                int sz = 4 * 1024;
-                char *ptr = (char *)calloc(1, sz);
+                size_t numPages = 1;
+                char *ptr = memoryAllocator(numPages);
                 block->next_ = new (ptr) Block();
                 block = block->next_;
-                block->limit_ = (char *)block + sz;
+                block->limit_ = (char *)block + (numPages * page_size_);
                 block->avail_ = (char *)block + sizeof(*block);
                 block->next_ = NULL;
                 printf("created arena block %p free space %ld\n", block, blockUnused(block));
@@ -235,6 +285,9 @@ struct Arena {
 
     struct Block head_;
     struct Block *current_;
+    size_t page_size_;
+    bool mmapped_;
+    bool hugetlb_;
 };
 
 struct Memtable {
@@ -317,6 +370,15 @@ void callback(struct DataPoint *dp) {
 int main(int argc, char const *argv[]) {
 
     struct Memtable mt;
+
+    mt.arena_.setMmapped(true);
+    // NOTE: this is needed to make huge tlb work otherwise the mmap()
+    //       fails; see https://rigtorp.se/hugepages/
+    // $ sudo bash -c 'echo 20 > /proc/sys/vm/nr_hugepages'
+    // $ cat /proc/sys/vm/nr_hugepages
+    // 20
+    mt.arena_.setMmapHuge(true);
+
     u_int64_t ts = 1;
 
     // overallocated size
