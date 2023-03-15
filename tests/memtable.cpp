@@ -128,6 +128,16 @@ struct Block {
 struct Arena {
     Arena() : head_(Block()), current_(&head_) {}
 
+    ~Arena() {
+        struct Block *head, *tmp;
+        head = head_.next_;
+        while (head) {
+            tmp = head->next_;
+            free(head);
+            head = tmp;
+        }
+    }
+
     char *allocate(const size_t size) {
         char *ptr = NULL;
         if ((current_->avail_ + size) > current_->limit_) {
@@ -189,6 +199,33 @@ struct Memtable {
         return dp;
     }
 
+    void insert(struct DataPoint *dp) {
+        root_ = insert(root_, dp);
+    }
+
+    struct DataPoint *insert(struct DataPoint *node, struct DataPoint *dp) {
+        if (node == nullptr) {
+            return dp;
+        } else if (node->key_.compare(dp->key_) <= 0) {
+            node->right_ = insert(node->right_, dp);
+        } else {
+            node->left_ = insert(node->left_, dp);
+        }
+        return node;
+    }
+
+    void inorder() {
+        inorder(root_);
+    }
+
+    void inorder(struct DataPoint *node) {
+        if (node != nullptr) {
+            inorder(node->left_);
+            node->toString();
+            inorder(node->right_);
+        }
+    }
+
     struct DataPoint *root_;
     struct Arena arena_;
 };
@@ -204,14 +241,23 @@ int main(int argc, char const *argv[]) {
 
     struct Memtable mt;
     struct DataPoint *dp = mt.allocateDataPoint(100);
-    printf("dp %p\n", dp);
+    // printf("dp %p\n", dp);
 
     u_int64_t ts = 1;
     dp->set(ts, (const char *)"name", 4, (const char *)"value", 5);
     dp->toString();
+    mt.insert(dp);
     dp = mt.allocateDataPoint(100);
     dp->set(ts + 1, (const char *)"blahblah", 8, (const char *)"with space value", 16);
     dp->toString();
+    mt.insert(dp);
+    dp = mt.allocateDataPoint(100);
+    dp->set(ts, (const char *)"aaaaaa", 6, (const char *)"muchbetter", 10);
+    dp->toString();
+    mt.insert(dp);
+
+    printf("IN ORDER:\n");
+    mt.inorder();
 
     return 0;
 }
