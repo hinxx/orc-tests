@@ -2,22 +2,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <endian.h>
 #include <new>
 
 
 struct Slice {
     // Create an empty slice.
     Slice() : data_(""), size_(0) {}
-    
+
     // Create a slice that refers to d[0,n-1].
     Slice(const char* d, size_t n) : data_(d), size_(n) {}
-    
+
     // Create a slice that refers to s[0,strlen(s)-1], implicit
     Slice(const char* s) : data_(s) { size_ = (s == nullptr) ? 0 : strlen(s); }
 
     // Return true iff the length of the referenced data is zero
     bool empty() const { return size_ == 0; }
-    
+
     // Return the ith byte in the referenced data.
     char operator[](size_t n) const {
         assert(n < size_);
@@ -28,6 +29,15 @@ struct Slice {
     void clear() {
         data_ = "";
         size_ = 0;
+    }
+
+    void hexdump() {
+        for (size_t i = 0; i < size_; i++) {
+            if (i % 8 == 0) {
+                printf(" ");
+            }
+            printf("%02x", unsigned(data_[i]));
+        }
     }
 
     // Three-way comparison.  Returns value:
@@ -63,36 +73,43 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 
 
 struct DataPoint {
-    DataPoint(struct Arena *arena) : left_(nullptr), right_(nullptr), arena_(arena),
-                                     ptr_key_(nullptr), ptr_value_(nullptr) {
-        // ptr_key_ = (char *)this + sizeof(*this);
-        // ptr_value_ = (char *)this + sizeof(*this);
-    }
+    DataPoint(struct Arena *arena) : left_(nullptr), right_(nullptr), arena_(arena) {}
 
-    // void setKey(const char *key, const size_t len) {
-    //     memcpy(ptr_key_, key, len);
-    // }
-    // void setValue(const char *value, const size_t len) {
-    //     memcpy(ptr_value_, value, len);
-    // }
-
+    // key is ts + name
     void set(const char *key, const size_t key_len, const char *value, const size_t value_len) {
-        ptr_key_ = (char *)this + sizeof(*this);
-        memcpy(ptr_key_, key, key_len);
-        ptr_value_ = (char *)this + sizeof(*this) + key_len;
-        memcpy(ptr_value_, value, value_len);
-        key_ = Slice(ptr_key_, key_len);
-        value_ = Slice(ptr_value_, value_len);
+        char *ptr = (char *)this + sizeof(*this);
+        key_ = Slice(ptr, key_len);
+        memcpy(ptr, key, key_len);
+        ptr += key_len;
+        value_ = Slice(ptr, value_len);
+        memcpy(ptr, value, value_len);
     }
 
+    void set(const u_int64_t ts, const char *name, const size_t name_len, const char *value, const size_t value_len) {
+        char *ptr = (char *)this + sizeof(*this);
+        key_ = Slice(ptr, ts_size_ + name_len);
+        u_int64_t bets = htobe64(ts);
+        memcpy(ptr, &bets, ts_size_);
+        ptr += ts_size_;
+        memcpy(ptr, name, name_len);
+        ptr += name_len;
+        value_ = Slice(ptr, value_len);
+        memcpy(ptr, value, value_len);
+    }
+
+    void toString() {
+        Slice ts = Slice(key_.data_, ts_size_);
+        Slice name = Slice(key_.data_ + ts_size_, key_.size_ - ts_size_);
+        printf("%08ld '%.*s'='%.*s'\n", htobe64(*(u_int64_t *)ts.data_), (int)name.size_, name.data_, (int)value_.size_, value_.data_);
+    }
+
+    static constexpr u_int64_t ts_size_ = sizeof(u_int64_t);
     struct Slice key_;
     struct Slice value_;
     struct DataPoint *left_;
     struct DataPoint *right_;
     // is this needed?
     struct Arena *arena_;
-    char *ptr_key_;
-    char *ptr_value_;
 };
 
 struct Block {
@@ -102,7 +119,7 @@ struct Block {
         avail_ = limit_;
     }
     ~Block() {}
-    
+
     struct Block *next_;
     char *limit_;
     char *avail_;
@@ -111,7 +128,7 @@ struct Block {
 struct Arena {
     Arena() : head_(Block()), current_(&head_) {}
 
-    char *allocate(const size_t size) { 
+    char *allocate(const size_t size) {
         char *ptr = NULL;
         if ((current_->avail_ + size) > current_->limit_) {
             // not enough space in the current block, find/allocate a new one
@@ -167,10 +184,8 @@ struct Memtable {
     Memtable() : root_(nullptr) {}
 
     struct DataPoint *allocateDataPoint(const size_t size) {
-        // struct DataPoint *dp = (struct DataPoint *)arena_.allocate(size + sizeof(struct DataPoint));
         char *ptr = (char *)arena_.allocate(size + sizeof(struct DataPoint));
         struct DataPoint *dp = new (ptr) DataPoint(&arena_);
-        // dp->arena_ = &arena_;
         return dp;
     }
 
@@ -190,6 +205,13 @@ int main(int argc, char const *argv[]) {
     struct Memtable mt;
     struct DataPoint *dp = mt.allocateDataPoint(100);
     printf("dp %p\n", dp);
+
+    u_int64_t ts = 1;
+    dp->set(ts, (const char *)"name", 4, (const char *)"value", 5);
+    dp->toString();
+    dp = mt.allocateDataPoint(100);
+    dp->set(ts + 1, (const char *)"blahblah", 8, (const char *)"with space value", 16);
+    dp->toString();
 
     return 0;
 }
