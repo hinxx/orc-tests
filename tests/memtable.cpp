@@ -202,6 +202,8 @@ struct Arena {
 };
 
 struct Memtable {
+    using CallbackType = void (*)(struct DataPoint *);
+
     Memtable() : root_(nullptr) {}
 
     struct DataPoint *allocateDataPoint(const size_t size) {
@@ -233,15 +235,19 @@ struct Memtable {
         return node;
     }
 
-    void inorder() {
-        inorder(root_);
+    void inorder(CallbackType cb = nullptr) {
+        inorder(root_, cb);
     }
 
-    void inorder(struct DataPoint *node) {
+    void inorder(struct DataPoint *node, CallbackType cb = nullptr) {
         if (node != nullptr) {
-            inorder(node->left_);
-            node->toString();
-            inorder(node->right_);
+            inorder(node->left_, cb);
+            if (cb != nullptr) {
+                cb(node);
+            } else {
+                node->toString();
+            }
+            inorder(node->right_, cb);
         }
     }
 
@@ -250,7 +256,11 @@ struct Memtable {
 };
 
 
-
+// test DataPoint callback
+void callback(struct DataPoint *dp) {
+    printf("data point %p: ", dp);
+    dp->toString();
+}
 
 
 
@@ -273,8 +283,12 @@ int main(int argc, char const *argv[]) {
     mt.insert(ts, (const char *)"name", 4, (const char *)"value", 5);
     mt.insert(ts + 1, (const char *)"blahblah", 8, (const char *)"with space value", 16);
     mt.insert(ts, (const char *)"aaaaaa", 6, (const char *)"muchbetter", 10);
-    printf("IN ORDER:\n");
+
+    printf("IN ORDER wo/ callback:\n");
     mt.inorder();
+
+    printf("IN ORDER w/ callback:\n");
+    mt.inorder(callback);
 
     return 0;
 }
