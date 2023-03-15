@@ -1,6 +1,7 @@
 ORC := ../install-1.8.2
 LIBS := -lorc -llz4 -lprotobuf -lprotoc -lsnappy -lz -lzstd
 LIBS += -pthread -lm
+GTEST := gtest-1.8.1/fused-src
 
 all: test1 test2 test3 test4 memtable
 
@@ -18,6 +19,16 @@ test4: test4.cpp
 
 memtable: memtable.cpp
 	g++ -Wall -O0 -ggdb3 memtable.cpp -pthread -lm -o memtable
+
+
+foo_test.o: foo_test.cpp
+	g++ -Wall -O0 -ggdb3 -I$(GTEST) -c $< -pthread -lm -o $@
+
+gtest.o: $(GTEST)/gtest/gtest-all.cc
+	g++ -Wall -O0 -ggdb3 -I$(GTEST) -c $< -pthread -o $@
+
+foo_test: foo_test.o gtest.o
+	g++ $^ -pthread -lm -o $@
 
 clean:
 	rm -f test1 test2 test3 test4

@@ -15,3 +15,5 @@ tests/orc-data
 tests/test3
 tests/test4
 tests/memtable
+tests/*.o
+
