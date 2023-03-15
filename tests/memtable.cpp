@@ -149,7 +149,7 @@ struct Arena {
             // move the avail pointer
             current_->avail_ += size;
         }
-        printf("arena block %p free space %ld\n", current_, freeSpace());
+        printf("arena block %p free space %ld\n", current_, blockUnused());
 
         return ptr;
     }
@@ -181,7 +181,7 @@ struct Arena {
                 block->limit_ = (char *)block + sz;
                 block->avail_ = (char *)block + sizeof(*block);
                 block->next_ = NULL;
-                printf("created arena block %p free space %ld\n", block, freeSpace(block));
+                printf("created arena block %p free space %ld\n", block, blockUnused(block));
             }
         }
 
@@ -189,12 +189,48 @@ struct Arena {
         return block->avail_ - size;
     }
 
-    size_t freeSpace(struct Block *block = nullptr) {
+    size_t blockUnused(struct Block *block = nullptr) {
         if (block != nullptr) {
             return (block->limit_ - block->avail_);
         } else {
             return (current_->limit_ - current_->avail_);
         }
+    }
+
+    size_t allocatedSize() {
+        size_t size = 0;
+        struct Block *head;
+        head = head_.next_;
+        while (head) {
+            size += head->limit_ - (char *)head - sizeof(*head);
+            head = head->next_;
+        }
+
+        return size;
+    }
+
+    size_t usedSize() {
+        size_t size = 0;
+        struct Block *head;
+        head = head_.next_;
+        while (head) {
+            size += head->avail_ - (char *)head - sizeof(*head);
+            head = head->next_;
+        }
+
+        return size;
+    }
+
+    size_t blockCount() {
+        size_t size = 0;
+        struct Block *head;
+        head = head_.next_;
+        while (head) {
+            size += 1;
+            head = head->next_;
+        }
+
+        return size;
     }
 
     struct Block head_;
@@ -251,6 +287,18 @@ struct Memtable {
         }
     }
 
+    size_t allocatedSize() {
+        return arena_.allocatedSize();
+    }
+
+    size_t usedSize() {
+        return arena_.usedSize();
+    }
+
+    size_t blockCount() {
+        return arena_.blockCount();
+    }
+
     struct DataPoint *root_;
     struct Arena arena_;
 };
@@ -289,6 +337,10 @@ int main(int argc, char const *argv[]) {
 
     printf("IN ORDER w/ callback:\n");
     mt.inorder(callback);
+
+    printf("block count %ld\n", mt.blockCount());
+    printf("allocated size %ld\n", mt.allocatedSize());
+    printf("used size %ld\n", mt.usedSize());
 
     return 0;
 }
