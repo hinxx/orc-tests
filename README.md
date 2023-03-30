@@ -17,6 +17,29 @@ cd ..
 cd tests
 make
 
+## C++ git
+
+git clone git@github.com:hinxx/orc.git orc-git
+
+mkdir build-git
+cd build-git
+cmake ../orc-git/ -DCMAKE_BUILD_TYPE=DEBUG -DBUILD_JAVA=OFF -DCMAKE_INSTALL_PREFIX=$(pwd)/../install-git
+
+make -j11
+make install
+
+
+## Java git
+
+cd java
+./mvnw -Dmaven.test.skip=true package
+
+./mvnw -Dmaven.test.skip=true -pl examples -am package
+
+./mvnw -Dmaven.test.skip=true -pl tools -am package
+
+
+
 ## Python
 
 wget https://www.python.org/ftp/python/3.10.10/Python-3.10.10.tgz
